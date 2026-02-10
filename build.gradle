@@ -47,6 +47,10 @@ wpi.java.debugJni = false
 def includeDesktopSupport = false
 
 repositories {
+    // AdvantageKit Maven repository
+    // Note: This uses a public read-only bot token provided by AdvantageKit
+    // for accessing their GitHub Packages. This is safe to commit and is
+    // documented in their repository: https://github.com/Mechanical-Advantage/AdvantageKit
     maven {
         url = uri("https://maven.pkg.github.com/Mechanical-Advantage/AdvantageKit")
         credentials {
