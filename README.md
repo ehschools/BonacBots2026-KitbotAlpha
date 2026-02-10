@@ -43,6 +43,10 @@ src/main/java/frc/robot/
 - WPILib 2026 installed
 - Java Development Kit (JDK) 17
 - Robot connected via USB or WiFi
+- Internet access to download dependencies:
+  - `frcmaven.wpi.edu` - WPILib artifacts
+  - `maven.revrobotics.com` - REVLib (SparkMax) artifacts
+  - `maven.pkg.github.com` - Additional FRC vendor libraries
 
 ### Build Commands
 ```bash
@@ -59,6 +63,8 @@ src/main/java/frc/robot/
 ./gradlew simulateJava
 ```
 
+**Note:** First build will download all required dependencies (~200MB). Subsequent builds will be faster.
+
 ## Features
 
 ### Drive System
@@ -68,11 +74,13 @@ src/main/java/frc/robot/
 - Current limiting for motor protection
 
 ### Vision System
-- Limelight 4 integration via PhotonVision
+- Limelight 4 integration via NetworkTables
 - AprilTag detection and tracking
-- Real-time target information (yaw, pitch, area)
+- Real-time target information (yaw, pitch, area, AprilTag ID)
+- Distance calculation based on target height
 - LED control (toggle with A button)
 - Driver/Vision camera mode switching
+- Pipeline latency monitoring
 
 ### Controls
 - **Left Stick Y**: Forward/Backward
@@ -94,7 +102,8 @@ All robot configuration is centralized in `Constants.java`:
 
 This project includes:
 - REVLib (2026.1.0) - for SparkMax motor controllers
-- PhotonLib (v2026.0.0-beta-5) - for Limelight 4 vision processing
+
+**Note:** The Limelight 4 camera uses NetworkTables for communication, which is built into WPILib. No additional vendor dependency is required for vision processing.
 
 ## Development
 

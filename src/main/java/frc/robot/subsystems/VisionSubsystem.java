@@ -1,14 +1,5 @@
 package frc.robot.subsystems;
 
-import org.photonvision.PhotonCamera;
-import org.photonvision.PhotonUtils;
-import org.photonvision.targeting.PhotonPipelineResult;
-import org.photonvision.targeting.PhotonTrackedTarget;
-
-import edu.wpi.first.math.geometry.Pose2d;
-import edu.wpi.first.math.geometry.Rotation2d;
-import edu.wpi.first.math.geometry.Transform3d;
-import edu.wpi.first.math.util.Units;
 import edu.wpi.first.networktables.NetworkTable;
 import edu.wpi.first.networktables.NetworkTableEntry;
 import edu.wpi.first.networktables.NetworkTableInstance;
@@ -16,27 +7,38 @@ import edu.wpi.first.wpilibj.smartdashboard.SmartDashboard;
 import edu.wpi.first.wpilibj2.command.SubsystemBase;
 import frc.robot.Constants.VisionConstants;
 
-import java.util.Optional;
-
 /**
  * The VisionSubsystem handles Limelight 4 camera integration for AprilTag detection
  * and target tracking. The Limelight 4 provides advanced vision processing with
  * high-speed AprilTag detection and pose estimation.
+ * 
+ * This implementation uses NetworkTables to communicate with the Limelight.
  */
 public class VisionSubsystem extends SubsystemBase {
-  private final PhotonCamera m_camera;
   private final NetworkTable m_limelightTable;
   
   private boolean m_ledOn = true;
-  private PhotonPipelineResult m_latestResult;
+
+  // NetworkTable entries for Limelight data
+  private final NetworkTableEntry m_tv;  // Valid target (0 or 1)
+  private final NetworkTableEntry m_tx;  // Horizontal offset (-29.8 to 29.8 degrees)
+  private final NetworkTableEntry m_ty;  // Vertical offset (-24.85 to 24.85 degrees)
+  private final NetworkTableEntry m_ta;  // Target area (0% to 100%)
+  private final NetworkTableEntry m_tid; // AprilTag ID
+  private final NetworkTableEntry m_tl;  // Latency (ms)
 
   /** Creates a new VisionSubsystem. */
   public VisionSubsystem() {
-    // Initialize PhotonVision camera (Limelight 4 runs PhotonVision)
-    m_camera = new PhotonCamera(VisionConstants.kLimelightName);
-    
-    // Get NetworkTables for additional Limelight control
+    // Get NetworkTables for Limelight
     m_limelightTable = NetworkTableInstance.getDefault().getTable(VisionConstants.kLimelightName);
+    
+    // Get NetworkTable entries
+    m_tv = m_limelightTable.getEntry("tv");
+    m_tx = m_limelightTable.getEntry("tx");
+    m_ty = m_limelightTable.getEntry("ty");
+    m_ta = m_limelightTable.getEntry("ta");
+    m_tid = m_limelightTable.getEntry("tid");
+    m_tl = m_limelightTable.getEntry("tl");
     
     // Set default LED state
     setLEDMode(VisionConstants.kLedModeOn);
@@ -69,12 +71,12 @@ public class VisionSubsystem extends SubsystemBase {
   }
 
   /**
-   * Gets the latest pipeline result from PhotonVision.
+   * Sets the Limelight pipeline.
    * 
-   * @return The latest pipeline result
+   * @param pipeline Pipeline index (0-9)
    */
-  public PhotonPipelineResult getLatestResult() {
-    return m_latestResult;
+  public void setPipeline(int pipeline) {
+    m_limelightTable.getEntry("pipeline").setNumber(pipeline);
   }
 
   /**
@@ -83,19 +85,7 @@ public class VisionSubsystem extends SubsystemBase {
    * @return true if a valid target is detected
    */
   public boolean hasTarget() {
-    return m_latestResult != null && m_latestResult.hasTargets();
-  }
-
-  /**
-   * Gets the best target from the latest result.
-   * 
-   * @return Optional containing the best target, or empty if no targets
-   */
-  public Optional<PhotonTrackedTarget> getBestTarget() {
-    if (hasTarget()) {
-      return Optional.of(m_latestResult.getBestTarget());
-    }
-    return Optional.empty();
+    return m_tv.getDouble(0) == 1.0;
   }
 
   /**
@@ -104,7 +94,7 @@ public class VisionSubsystem extends SubsystemBase {
    * @return Horizontal angle in degrees, or 0 if no target
    */
   public double getTargetYaw() {
-    return getBestTarget().map(PhotonTrackedTarget::getYaw).orElse(0.0);
+    return m_tx.getDouble(0.0);
   }
 
   /**
@@ -113,7 +103,7 @@ public class VisionSubsystem extends SubsystemBase {
    * @return Vertical angle in degrees, or 0 if no target
    */
   public double getTargetPitch() {
-    return getBestTarget().map(PhotonTrackedTarget::getPitch).orElse(0.0);
+    return m_ty.getDouble(0.0);
   }
 
   /**
@@ -122,7 +112,7 @@ public class VisionSubsystem extends SubsystemBase {
    * @return Target area (0-100), or 0 if no target
    */
   public double getTargetArea() {
-    return getBestTarget().map(PhotonTrackedTarget::getArea).orElse(0.0);
+    return m_ta.getDouble(0.0);
   }
 
   /**
@@ -131,47 +121,49 @@ public class VisionSubsystem extends SubsystemBase {
    * @return AprilTag ID, or -1 if no target
    */
   public int getAprilTagID() {
-    return getBestTarget().map(PhotonTrackedTarget::getFiducialId).orElse(-1);
+    return (int) m_tid.getDouble(-1.0);
   }
 
   /**
-   * Gets the robot pose from AprilTag detection.
+   * Gets the pipeline latency in milliseconds.
    * 
-   * @return Optional containing the estimated robot pose, or empty if unavailable
+   * @return Pipeline latency in ms
    */
-  public Optional<Pose2d> getRobotPose() {
-    if (m_latestResult != null && m_latestResult.hasTargets()) {
-      // Get the best target's transform
-      PhotonTrackedTarget target = m_latestResult.getBestTarget();
-      Transform3d cameraToTarget = target.getBestCameraToTarget();
-      
-      // Note: Full pose estimation requires field layout and camera calibration
-      // This is a simplified example
-      return Optional.of(new Pose2d(
-          cameraToTarget.getX(),
-          cameraToTarget.getY(),
-          new Rotation2d(Units.degreesToRadians(target.getYaw()))
-      ));
+  public double getLatencyMs() {
+    return m_tl.getDouble(0.0);
+  }
+
+  /**
+   * Gets the distance to the target based on known target height.
+   * This is a simplified calculation using pitch angle.
+   * 
+   * @param targetHeightMeters Height of the target in meters
+   * @param cameraHeightMeters Height of the camera in meters
+   * @param cameraPitchDegrees Pitch angle of the camera mounting in degrees
+   * @return Distance to target in meters, or 0 if no target
+   */
+  public double getDistanceToTarget(double targetHeightMeters, double cameraHeightMeters, double cameraPitchDegrees) {
+    if (!hasTarget()) {
+      return 0.0;
     }
-    return Optional.empty();
+    
+    double targetPitch = getTargetPitch();
+    double angleToTarget = cameraPitchDegrees + targetPitch;
+    
+    // Distance = (height difference) / tan(angle)
+    double heightDifference = targetHeightMeters - cameraHeightMeters;
+    return heightDifference / Math.tan(Math.toRadians(angleToTarget));
   }
 
   @Override
   public void periodic() {
-    // Update latest result from camera
-    m_latestResult = m_camera.getLatestResult();
-    
     // Publish telemetry to SmartDashboard
     SmartDashboard.putBoolean("Vision/HasTarget", hasTarget());
     SmartDashboard.putNumber("Vision/TargetYaw", getTargetYaw());
     SmartDashboard.putNumber("Vision/TargetPitch", getTargetPitch());
     SmartDashboard.putNumber("Vision/TargetArea", getTargetArea());
     SmartDashboard.putNumber("Vision/AprilTagID", getAprilTagID());
-    
-    // Publish latency
-    if (m_latestResult != null) {
-      SmartDashboard.putNumber("Vision/LatencyMs", m_latestResult.getLatencyMillis());
-    }
+    SmartDashboard.putNumber("Vision/LatencyMs", getLatencyMs());
   }
 
   @Override
